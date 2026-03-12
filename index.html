@@ -1,0 +1,2062 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow | 任务管理系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <!-- 配置Tailwind -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#6366F1',
+                        success: '#10B981',
+                        warning: '#F59E0B',
+                        danger: '#EF4444',
+                        light: '#F3F4F6',
+                        dark: '#1F2937',
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        card: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                        'card-hover': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .transition-all-300 {
+                transition: all 0.3s ease;
+            }
+            .task-item {
+                transition: all 0.3s ease;
+            }
+            .task-item:hover {
+                background-color: rgba(59, 130, 246, 0.05);
+            }
+            .task-completed {
+                opacity: 0.7;
+            }
+            .task-completed .task-text {
+                text-decoration: line-through;
+            }
+            .tab-active {
+                border-bottom: 2px solid theme('colors.primary');
+                color: theme('colors.primary');
+            }
+            .reminder-badge {
+                position: relative;
+            }
+            .reminder-badge::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 8px;
+                height: 8px;
+                background-color: theme('colors.warning');
+                border-radius: 50%;
+            }
+            .highlight-task {
+                animation: highlight 3s ease-in-out;
+            }
+            @keyframes highlight {
+                0%, 100% { background-color: transparent; }
+                50% { background-color: rgba(245, 158, 11, 0.2); }
+            }
+            .progress-bar {
+                transition: width 0.5s ease;
+            }
+            .glass-effect {
+                background: rgba(255, 255, 255, 0.7);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+            }
+            .fade-in {
+                animation: fadeIn 0.3s ease-in-out;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .trash-item {
+                transition: all 0.3s ease;
+                border-left: 3px solid #9CA3AF;
+            }
+            .trash-item:hover {
+                border-left-color: theme('colors.primary');
+                background-color: rgba(59, 130, 246, 0.05);
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-gray-50 text-dark min-h-screen flex flex-col">
+    <!-- 导航栏 -->
+    <nav class="bg-white shadow-sm sticky top-0 z-50 transition-all duration-300">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <i class="fa-solid fa-tasks text-primary text-2xl mr-2"></i>
+                        <span class="text-xl font-semibold">TaskFlow</span>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex space-x-8">
+                        <a href="#dashboard" class="text-gray-700 hover:text-primary px-3 py-2 text-sm font-medium transition-colors duration-200">仪表盘</a>
+                        <a href="#tasks" class="text-gray-700 hover:text-primary px-3 py-2 text-sm font-medium transition-colors duration-200">任务管理</a>
+                        <a href="#trash" class="text-gray-700 hover:text-primary px-3 py-2 text-sm font-medium transition-colors duration-200">
+                            回收站
+                            <span id="trash-count" class="ml-1 inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full bg-gray-200 text-gray-800">0</span>
+                        </a>
+                        <a href="#data" class="text-gray-700 hover:text-primary px-3 py-2 text-sm font-medium transition-colors duration-200">数据看板</a>
+                    </div>
+                </div>
+                <div class="flex items-center">
+                    <button id="notification-settings" class="p-2 rounded-md text-gray-500 hover:text-primary focus:outline-none relative">
+                        <i class="fa-solid fa-bell"></i>
+                        <span id="notification-badge" class="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full hidden"></span>
+                    </button>
+                    <button class="ml-4 p-2 rounded-md text-gray-500 hover:text-primary focus:outline-none">
+                        <i class="fa-solid fa-cog"></i>
+                    </button>
+                    <button class="ml-4 p-2 rounded-md text-gray-500 hover:text-primary focus:outline-none">
+                        <i class="fa-solid fa-user-circle"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- 数据安全提示 -->
+        <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-8 rounded-md">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <i class="fa-solid fa-shield-alt text-blue-500"></i>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-blue-700">
+                        <strong class="font-medium">数据安全说明：</strong> 所有任务数据仅存储在您的本地浏览器中，不会上传到任何服务器，确保您的信息安全私密。
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 仪表盘区域 -->
+        <section id="dashboard" class="mb-10">
+            <h1 class="text-[clamp(1.75rem,3vw,2.5rem)] font-bold text-gray-900 mb-2">仪表盘</h1>
+            <p class="text-gray-600 max-w-3xl">欢迎使用TaskFlow任务管理系统，高效管理您的工作和任务。</p>
+            
+            <!-- 数据概览卡片 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
+                <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-primary/10 text-primary">
+                            <i class="fa-solid fa-tasks text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-gray-500 text-sm">总任务数</p>
+                            <p class="text-2xl font-semibold" id="total-tasks">0</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-success/10 text-success">
+                            <i class="fa-solid fa-check-circle text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-gray-500 text-sm">已完成任务</p>
+                            <p class="text-2xl font-semibold" id="completed-tasks">0</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-warning/10 text-warning">
+                            <i class="fa-solid fa-clock text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-gray-500 text-sm">待完成任务</p>
+                            <p class="text-2xl font-semibold" id="pending-tasks">0</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-danger/10 text-danger">
+                            <i class="fa-solid fa-exclamation-triangle text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-gray-500 text-sm">逾期任务</p>
+                            <p class="text-2xl font-semibold" id="overdue-tasks">0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 任务进度和图表 -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+                <!-- 任务进度 -->
+                <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300 lg:col-span-1">
+                    <h3 class="text-lg font-semibold mb-4">任务进度</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-sm font-medium text-gray-700">总体完成率</span>
+                                <span class="text-sm font-medium text-primary" id="completion-rate">0%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                <div id="completion-bar" class="bg-primary h-2.5 rounded-full progress-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-6">
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">任务分类</h4>
+                            <div class="space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <span class="w-3 h-3 rounded-full bg-primary mr-2"></span>
+                                        <span class="text-sm">工作</span>
+                                    </div>
+                                    <span class="text-sm font-medium" id="work-tasks">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <span class="w-3 h-3 rounded-full bg-secondary mr-2"></span>
+                                        <span class="text-sm">学习</span>
+                                    </div>
+                                    <span class="text-sm font-medium" id="study-tasks">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <span class="w-3 h-3 rounded-full bg-success mr-2"></span>
+                                        <span class="text-sm">生活</span>
+                                    </div>
+                                    <span class="text-sm font-medium" id="life-tasks">0</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <span class="w-3 h-3 rounded-full bg-warning mr-2"></span>
+                                        <span class="text-sm">其他</span>
+                                    </div>
+                                    <span class="text-sm font-medium" id="other-tasks">0</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-6">
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">回收站</h4>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <span class="w-3 h-3 rounded-full bg-gray-400 mr-2"></span>
+                                    <span class="text-sm">已删除任务</span>
+                                </div>
+                                <span class="text-sm font-medium" id="trash-tasks">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 任务完成趋势 -->
+                <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300 lg:col-span-2">
+                    <h3 class="text-lg font-semibold mb-4">任务完成趋势</h3>
+                    <div class="h-64">
+                        <canvas id="task-trend-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 任务管理区域 -->
+        <section id="tasks" class="mb-12">
+            <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300">
+                <h2 class="text-xl font-semibold mb-6">任务管理</h2>
+                
+                <!-- 任务输入表单 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+                    <div class="md:col-span-2">
+                        <label for="task-title" class="block text-sm font-medium text-gray-700 mb-1">任务标题</label>
+                        <input type="text" id="task-title" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200" placeholder="输入任务标题...">
+                    </div>
+                    
+                    <div>
+                        <label for="task-category" class="block text-sm font-medium text-gray-700 mb-1">分类</label>
+                        <select id="task-category" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200">
+                            <option value="work">工作</option>
+                            <option value="study">学习</option>
+                            <option value="life">生活</option>
+                            <option value="other">其他</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label for="task-priority" class="block text-sm font-medium text-gray-700 mb-1">优先级</label>
+                        <select id="task-priority" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200">
+                            <option value="low">低</option>
+                            <option value="medium" selected="">中</option>
+                            <option value="high">高</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label for="task-due-date" class="block text-sm font-medium text-gray-700 mb-1">截止日期</label>
+                        <input type="datetime-local" id="task-due-date" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200">
+                    </div>
+                    
+                    <div>
+                        <label for="task-reminder" class="block text-sm font-medium text-gray-700 mb-1">提醒时间</label>
+                        <select id="task-reminder" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200">
+                            <option value="none">不提醒</option>
+                            <option value="5">提前5分钟</option>
+                            <option value="15">提前15分钟</option>
+                            <option value="30">提前30分钟</option>
+                            <option value="60">提前1小时</option>
+                            <option value="1440">提前1天</option>
+                            <option value="expire">仅过期提醒</option>
+                        </select>
+                    </div>
+                    
+                    <div class="md:col-span-3">
+                        <label for="task-description" class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                        <textarea id="task-description" rows="2" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200" placeholder="输入任务描述..."></textarea>
+                    </div>
+                    
+                    <div class="md:col-span-3 flex justify-end">
+                        <button id="add-task" class="px-6 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors duration-200 shadow-sm flex items-center">
+                            <i class="fa-solid fa-plus mr-2"></i> 添加任务
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 任务筛选 -->
+                <div class="flex mb-6 border-b">
+                    <button class="task-filter tab-active px-4 py-2 text-sm font-medium transition-colors duration-200" data-filter="all">全部</button>
+                    <button class="task-filter px-4 py-2 text-sm font-medium transition-colors duration-200" data-filter="pending">待完成</button>
+                    <button class="task-filter px-4 py-2 text-sm font-medium transition-colors duration-200" data-filter="completed">已完成</button>
+                    <button class="task-filter px-4 py-2 text-sm font-medium transition-colors duration-200" data-filter="overdue">逾期</button>
+                    
+                    <div class="ml-auto flex items-center space-x-4">
+                        <div class="relative">
+                            <input type="text" id="task-search" class="pl-8 pr-4 py-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200 text-sm" placeholder="搜索任务...">
+                            <i class="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
+                        </div>
+                        
+                        <select id="task-sort" class="p-1 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200 text-sm">
+                            <option value="dueDate">按截止日期</option>
+                            <option value="priority">按优先级</option>
+                            <option value="createdAt">按创建时间</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- 任务列表 -->
+                <div id="task-list" class="space-y-3">
+                    <!-- 任务项将通过JavaScript动态添加 -->
+                </div>
+                
+                <!-- 空任务提示 -->
+                <div id="empty-tasks" class="hidden py-8 text-center text-gray-400">
+                    <i class="fa-solid fa-clipboard-list text-4xl mb-3"></i>
+                    <p>暂无任务，请添加新任务</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 回收站区域 -->
+        <section id="trash" class="mb-12">
+            <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold">回收站</h2>
+                    <div class="flex space-x-3">
+                        <button id="empty-trash" class="px-4 py-1.5 bg-danger text-white rounded-md hover:bg-danger/90 transition-colors duration-200 shadow-sm flex items-center text-sm">
+                            <i class="fa-solid fa-trash-can mr-1"></i> 清空回收站
+                        </button>
+                        <button id="restore-all" class="px-4 py-1.5 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors duration-200 shadow-sm flex items-center text-sm">
+                            <i class="fa-solid fa-rotate-left mr-1"></i> 恢复全部
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 回收站说明 -->
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 rounded-md">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <i class="fa-solid fa-info-circle text-yellow-500"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-yellow-700">
+                                已删除的任务将在回收站中保存30天，超过时间将自动清除。您可以随时恢复或永久删除这些任务。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 回收站列表 -->
+                <div id="trash-list" class="space-y-3">
+                    <!-- 回收站项目将通过JavaScript动态添加 -->
+                </div>
+                
+                <!-- 空回收站提示 -->
+                <div id="empty-trash-message" class="hidden py-8 text-center text-gray-400">
+                    <i class="fa-solid fa-trash-can text-4xl mb-3"></i>
+                    <p>回收站是空的</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 数据看板区域 -->
+        <section id="data" class="mb-12">
+            <div class="bg-white rounded-xl p-6 shadow-card hover:shadow-card-hover transition-all-300">
+                <h2 class="text-xl font-semibold mb-6">数据看板</h2>
+                
+                <!-- 数据上传 -->
+                <div class="mb-8">
+                    <h3 class="text-lg font-medium mb-4">上传数据</h3>
+                    <div id="drop-area" class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary transition-colors duration-200 cursor-pointer">
+                        <input type="file" id="file-input" class="hidden" accept=".xlsx,.xls,.csv">
+                        <i class="fa-solid fa-file-excel text-4xl text-gray-400 mb-3"></i>
+                        <p class="text-gray-500 mb-2">拖放文件到此处，或</p>
+                        <button id="browse-btn" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors duration-200 shadow-sm">
+                            <i class="fa-solid fa-folder-open mr-1"></i> 浏览文件
+                        </button>
+                        <p class="text-gray-400 text-sm mt-3">支持 .xlsx, .xls, .csv 格式</p>
+                    </div>
+                </div>
+                
+                <!-- 数据可视化 -->
+                <div>
+                    <h3 class="text-lg font-medium mb-4">数据可视化</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <!-- 图表类型选择 -->
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-medium mb-3">图表类型</h4>
+                            <div class="space-y-2" id="chart-types">
+                                <div class="flex items-center p-2 rounded hover:bg-gray-100 cursor-pointer transition-colors duration-200 chart-type-option" data-type="bar">
+                                    <i class="fa-solid fa-chart-bar text-primary mr-2"></i>
+                                    <span>柱状图</span>
+                                </div>
+                                <div class="flex items-center p-2 rounded hover:bg-gray-100 cursor-pointer transition-colors duration-200 chart-type-option" data-type="line">
+                                    <i class="fa-solid fa-chart-line text-primary mr-2"></i>
+                                    <span>折线图</span>
+                                </div>
+                                <div class="flex items-center p-2 rounded hover:bg-gray-100 cursor-pointer transition-colors duration-200 chart-type-option" data-type="pie">
+                                    <i class="fa-solid fa-chart-pie text-primary mr-2"></i>
+                                    <span>饼图</span>
+                                </div>
+                                <div class="flex items-center p-2 rounded hover:bg-gray-100 cursor-pointer transition-colors duration-200 chart-type-option" data-type="doughnut">
+                                    <i class="fa-solid fa-doughnut text-primary mr-2"></i>
+                                    <span>环形图</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 数据列选择 -->
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-medium mb-3">数据列</h4>
+                            <div id="column-selectors" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">X轴/类别</label>
+                                    <select id="x-axis-select" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200">
+                                        <option value="">请选择...</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Y轴/数值</label>
+                                    <select id="y-axis-select" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200">
+                                        <option value="">请选择...</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 图表选项 -->
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-medium mb-3">图表选项</h4>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">图表标题</label>
+                                    <input type="text" id="chart-title" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors duration-200" placeholder="请输入图表标题">
+                                </div>
+                                <div class="flex items-center mt-2">
+                                    <input type="checkbox" id="show-legend" class="h-4 w-4 text-primary focus:ring-primary/50 border-gray-300 rounded" checked="">
+                                    <label for="show-legend" class="ml-2 block text-sm text-gray-700">显示图例</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-6 flex justify-end">
+                        <button id="generate-chart" class="px-6 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors duration-200 shadow-sm flex items-center">
+                            <i class="fa-solid fa-chart-bar mr-2"></i> 生成图表
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 图表展示区域 -->
+                <div class="mt-8">
+                    <div id="chart-container" class="hidden h-96">
+                        <canvas id="data-chart"></canvas>
+                    </div>
+                    
+                    <div id="no-chart-message" class="h-96 flex items-center justify-center text-gray-400">
+                        <div class="text-center">
+                            <i class="fa-solid fa-chart-line text-5xl mb-4"></i>
+                            <p>上传数据并生成图表后将在此处显示</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-white border-t border-gray-200">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="mb-4 md:mb-0">
+                    <div class="flex items-center">
+                        <i class="fa-solid fa-tasks text-primary text-xl mr-2"></i>
+                        <span class="text-lg font-semibold">TaskFlow</span>
+                    </div>
+                    <p class="text-gray-500 text-sm mt-1">高效的任务管理系统</p>
+                </div>
+                
+                <div class="flex space-x-6">
+                    <a href="#" class="text-gray-500 hover:text-primary transition-colors duration-200">
+                        <i class="fa-brands fa-github text-xl"></i>
+                    </a>
+                    <a href="#" class="text-gray-500 hover:text-primary transition-colors duration-200">
+                        <i class="fa-brands fa-twitter text-xl"></i>
+                    </a>
+                    <a href="#" class="text-gray-500 hover:text-primary transition-colors duration-200">
+                        <i class="fa-brands fa-linkedin text-xl"></i>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="mt-6 pt-6 border-t border-gray-200 flex flex-col md:flex-row justify-between items-center">
+                <p class="text-gray-500 text-sm">© 2025 TaskFlow. 保留所有权利。</p>
+                
+                <div class="mt-4 md:mt-0 flex space-x-6">
+                    <a href="#" class="text-gray-500 hover:text-primary text-sm transition-colors duration-200">隐私政策</a>
+                    <a href="#" class="text-gray-500 hover:text-primary text-sm transition-colors duration-200">使用条款</a>
+                    <a href="#" class="text-gray-500 hover:text-primary text-sm transition-colors duration-200">联系我们</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 通知组件 -->
+    <div id="notification" class="fixed top-4 right-4 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full opacity-0 z-50 flex items-center max-w-xs">
+        <i id="notification-icon" class="mr-2"></i>
+        <span id="notification-message"></span>
+        <button id="close-notification" class="ml-4 text-gray-400 hover:text-gray-600">
+            <i class="fa-solid fa-times"></i>
+        </button>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div id="toast" class="fixed bottom-4 right-4 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-y-full opacity-0 z-50 flex items-center max-w-xs glass-effect">
+        <i id="toast-icon" class="mr-2"></i>
+        <span id="toast-message"></span>
+    </div>
+
+    <!-- 确认对话框 -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+            <h3 class="text-lg font-semibold mb-3" id="confirm-title">确认操作</h3>
+            <p class="text-gray-600 mb-4" id="confirm-message">您确定要执行此操作吗？</p>
+            <div class="flex justify-end space-x-3">
+                <button id="confirm-cancel" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors duration-200">取消</button>
+                <button id="confirm-ok" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors duration-200">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通知权限请求弹窗 -->
+    <div id="notification-permission-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+            <h3 class="text-lg font-semibold mb-3">启用通知</h3>
+            <p class="text-gray-600 mb-4">为了及时提醒您任务的截止时间，我们需要获取通知权限。您可以随时在浏览器设置中更改此权限。</p>
+            <div class="flex justify-end space-x-3">
+                <button id="deny-notification" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors duration-200">稍后再说</button>
+                <button id="allow-notification" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors duration-200">允许</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let tasks = [];
+        let trash = [];
+        let currentFilter = 'all';
+        let currentSort = 'dueDate';
+        let searchQuery = '';
+        let data = null;
+        let chart = null;
+        let taskTrendChart = null;
+        let notificationPermission = false;
+        let reminderCheckInterval = null;
+        let lastReminderCheck = Date.now();
+        let confirmCallback = null;
+        
+        // DOM 元素
+        const taskTitle = document.getElementById('task-title');
+        const taskCategory = document.getElementById('task-category');
+        const taskPriority = document.getElementById('task-priority');
+        const taskDueDate = document.getElementById('task-due-date');
+        const taskReminder = document.getElementById('task-reminder');
+        const taskDescription = document.getElementById('task-description');
+        const addTask = document.getElementById('add-task');
+        const taskList = document.getElementById('task-list');
+        const emptyTasks = document.getElementById('empty-tasks');
+        const taskSearch = document.getElementById('task-search');
+        const taskSort = document.getElementById('task-sort');
+        const notificationBadge = document.getElementById('notification-badge');
+        const notificationSettings = document.getElementById('notification-settings');
+        const notificationModal = document.getElementById('notification-permission-modal');
+        const allowNotification = document.getElementById('allow-notification');
+        const denyNotification = document.getElementById('deny-notification');
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const browseBtn = document.getElementById('browse-btn');
+        const xAxisSelect = document.getElementById('x-axis-select');
+        const yAxisSelect = document.getElementById('y-axis-select');
+        const chartTitleInput = document.getElementById('chart-title');
+        const showLegend = document.getElementById('show-legend');
+        const generateChartBtn = document.getElementById('generate-chart');
+        const chartContainer = document.getElementById('chart-container');
+        const dataChart = document.getElementById('data-chart');
+        const noChartMessage = document.getElementById('no-chart-message');
+        const trashList = document.getElementById('trash-list');
+        const emptyTrashMessage = document.getElementById('empty-trash-message');
+        const emptyTrashBtn = document.getElementById('empty-trash');
+        const restoreAllBtn = document.getElementById('restore-all');
+        const trashCountElement = document.getElementById('trash-count');
+        const trashTasksElement = document.getElementById('trash-tasks');
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmTitle = document.getElementById('confirm-title');
+        const confirmMessage = document.getElementById('confirm-message');
+        const confirmOk = document.getElementById('confirm-ok');
+        const confirmCancel = document.getElementById('confirm-cancel');
+        
+        // 统计元素
+        const totalTasksElement = document.getElementById('total-tasks');
+        const completedTasksElement = document.getElementById('completed-tasks');
+        const pendingTasksElement = document.getElementById('pending-tasks');
+        const overdueTasksElement = document.getElementById('overdue-tasks');
+        const completionRateElement = document.getElementById('completion-rate');
+        const completionBarElement = document.getElementById('completion-bar');
+        const workTasksElement = document.getElementById('work-tasks');
+        const studyTasksElement = document.getElementById('study-tasks');
+        const lifeTasksElement = document.getElementById('life-tasks');
+        const otherTasksElement = document.getElementById('other-tasks');
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            // 设置默认截止日期为明天
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(23, 59, 59);
+            const formattedDate = tomorrow.toISOString().slice(0, 16);
+            taskDueDate.value = formattedDate;
+            
+            // 检查通知权限
+            checkNotificationPermission();
+            
+            // 从本地存储加载任务和回收站
+            loadData();
+            
+            // 清理过期的回收站项目
+            cleanupTrash();
+            
+            // 更新统计信息
+            updateStatistics();
+            
+            // 显示任务列表
+            renderTasks();
+            
+            // 显示回收站
+            renderTrash();
+            
+            // 初始化任务趋势图表
+            initTaskTrendChart();
+            
+            // 启动提醒检查
+            startReminderCheck();
+            
+            // 监听页面可见性变化
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            
+            // 监听窗口焦点变化
+            window.addEventListener('focus', handleWindowFocus);
+        });
+        
+        // 从本地存储加载数据
+        function loadData() {
+            // 加载任务
+            const savedTasks = localStorage.getItem('tasks');
+            if (savedTasks) {
+                tasks = JSON.parse(savedTasks);
+                
+                // 检查过期状态
+                const now = Date.now();
+                tasks.forEach(task => {
+                    if (!task.completed && task.dueDate) {
+                        const dueDate = new Date(task.dueDate).getTime();
+                        if (dueDate < now) {
+                            task.overdue = true;
+                        }
+                    }
+                });
+            }
+            
+            // 加载回收站
+            const savedTrash = localStorage.getItem('trash');
+            if (savedTrash) {
+                trash = JSON.parse(savedTrash);
+            }
+        }
+        
+        // 保存数据到本地存储
+        function saveData() {
+            localStorage.setItem('tasks', JSON.stringify(tasks));
+            localStorage.setItem('trash', JSON.stringify(trash));
+        }
+        
+        // 清理过期的回收站项目（超过30天）
+        function cleanupTrash() {
+            const now = Date.now();
+            const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+            
+            // 过滤出未过期的项目
+            const filteredTrash = trash.filter(item => {
+                const deletedAt = new Date(item.deletedAt).getTime();
+                return (now - deletedAt) < thirtyDaysInMs;
+            });
+            
+            // 如果有项目被清理，更新回收站并保存
+            if (filteredTrash.length !== trash.length) {
+                trash = filteredTrash;
+                saveData();
+                renderTrash();
+                updateStatistics();
+            }
+        }
+        
+        // 检查通知权限
+        function checkNotificationPermission() {
+            if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    notificationPermission = true;
+                } else if (Notification.permission !== 'denied') {
+                    // 显示权限请求弹窗
+                    setTimeout(() => {
+                        notificationModal.classList.remove('hidden');
+                    }, 1000);
+                }
+            }
+        }
+        
+        // 请求通知权限
+        function requestNotificationPermission() {
+            if ('Notification' in window) {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        notificationPermission = true;
+                        showToast('通知已启用', 'success');
+                    } else {
+                        showToast('您已拒绝通知权限，将使用页面内提醒', 'info');
+                    }
+                    notificationModal.classList.add('hidden');
+                });
+            }
+        }
+        
+        // 启动提醒检查
+        function startReminderCheck() {
+            // 每15秒检查一次提醒
+            reminderCheckInterval = setInterval(checkReminders, 15000);
+            // 立即执行一次检查
+            checkReminders();
+        }
+        
+        // 检查任务提醒
+        function checkReminders() {
+            const now = Date.now();
+            const twoMinutesAgo = now - 2 * 60 * 1000; // 2分钟容错窗口
+            
+            tasks.forEach(task => {
+                // 跳过已完成的任务
+                if (task.completed) return;
+                
+                // 跳过没有截止日期的任务
+                if (!task.dueDate) return;
+                
+                const dueDate = new Date(task.dueDate).getTime();
+                
+                // 检查是否需要提醒
+                if (task.reminder && task.reminder !== 'none' && !task.reminded) {
+                    let reminderTime;
+                    
+                    if (task.reminder === 'expire') {
+                        // 仅在过期时提醒
+                        reminderTime = dueDate;
+                    } else {
+                        // 提前N分钟提醒
+                        const minutes = parseInt(task.reminder);
+                        reminderTime = dueDate - minutes * 60 * 1000;
+                    }
+                    
+                    // 检查是否在提醒时间范围内（考虑2分钟容错窗口）
+                    if (reminderTime <= now && reminderTime >= twoMinutesAgo) {
+                        showTaskReminder(task);
+                        task.reminded = true;
+                        saveData();
+                    }
+                }
+                
+                // 检查是否已过期
+                if (dueDate < now && !task.overdue) {
+                    task.overdue = true;
+                    // 如果设置了仅过期提醒或未设置提醒，显示过期提醒
+                    if (task.reminder === 'expire' || !task.reminder || task.reminder === 'none') {
+                        showTaskReminder(task, true);
+                    }
+                    saveData();
+                    updateStatistics();
+                }
+            });
+            
+            lastReminderCheck = now;
+        }
+        
+        // 显示任务提醒
+        function showTaskReminder(task, isOverdue = false) {
+            const title = isOverdue ? '任务已过期' : '任务提醒';
+            const message = isOverdue 
+                ? `任务"${task.title}"已过期！` 
+                : `任务"${task.title}"将在${getReminderText(task.reminder)}截止`;
+            
+            // 显示桌面通知
+            if (notificationPermission && 'Notification' in window) {
+                const notification = new Notification(title, {
+                    body: message,
+                    icon: '/favicon.ico',
+                    tag: `task-${task.id}`,
+                    requireInteraction: isOverdue // 过期提醒需要用户交互
+                });
+                
+                // 点击通知定位到任务
+                notification.onclick = () => {
+                    highlightTask(task.id);
+                    window.focus();
+                    notification.close();
+                };
+                
+                // 非过期提醒15秒后自动关闭
+                if (!isOverdue) {
+                    setTimeout(() => {
+                        notification.close();
+                    }, 15000);
+                }
+            }
+            
+            // 显示页面内Toast提醒（双重保险）
+            showToast(message, isOverdue ? 'danger' : 'warning');
+            
+            // 高亮任务
+            highlightTask(task.id);
+        }
+        
+        // 获取提醒文本
+        function getReminderText(reminder) {
+            switch (reminder) {
+                case '5': return '5分钟后';
+                case '15': return '15分钟后';
+                case '30': return '30分钟后';
+                case '60': return '1小时后';
+                case '1440': return '1天后';
+                case 'expire': return '现在';
+                default: return '即将';
+            }
+        }
+        
+        // 高亮任务
+        function highlightTask(taskId) {
+            const taskElement = document.querySelector(`.task-item[data-id="${taskId}"]`);
+            if (taskElement) {
+                // 滚动到任务
+                taskElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // 高亮任务
+                taskElement.classList.add('highlight-task');
+                
+                // 3秒后移除高亮
+                setTimeout(() => {
+                    taskElement.classList.remove('highlight-task');
+                }, 3000);
+            }
+        }
+        
+        // 处理页面可见性变化
+        function handleVisibilityChange() {
+            if (!document.hidden) {
+                // 页面变为可见时，立即检查提醒
+                checkReminders();
+            }
+        }
+        
+        // 处理窗口焦点变化
+        function handleWindowFocus() {
+            // 窗口获得焦点时，立即检查提醒
+            checkReminders();
+        }
+        
+        // 添加新任务
+        function addNewTask() {
+            const title = taskTitle.value.trim();
+            if (!title) {
+                showToast('请输入任务标题', 'warning');
+                return;
+            }
+            
+            const category = taskCategory.value;
+            const priority = taskPriority.value;
+            const dueDate = taskDueDate.value;
+            const reminder = taskReminder.value;
+            const description = taskDescription.value.trim();
+            
+            const task = {
+                id: Date.now(),
+                title: title,
+                category: category,
+                priority: priority,
+                dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+                reminder: reminder,
+                description: description,
+                completed: false,
+                overdue: false,
+                reminded: false,
+                createdAt: new Date().toISOString(),
+                completedAt: null
+            };
+            
+            tasks.push(task);
+            saveData();
+            renderTasks();
+            updateStatistics();
+            updateTaskTrendChart();
+            
+            // 重置表单
+            taskTitle.value = '';
+            taskDescription.value = '';
+            taskTitle.focus();
+            
+            showToast('任务添加成功', 'success');
+        }
+        
+        // 渲染任务列表
+        function renderTasks() {
+            // 清空任务列表
+            taskList.innerHTML = '';
+            
+            // 筛选任务
+            let filteredTasks = tasks;
+            
+            // 应用搜索
+            if (searchQuery) {
+                filteredTasks = filteredTasks.filter(task => 
+                    task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                    (task.description && task.description.toLowerCase().includes(searchQuery.toLowerCase()))
+                );
+            }
+            
+            // 应用状态筛选
+            if (currentFilter === 'pending') {
+                filteredTasks = filteredTasks.filter(task => !task.completed);
+            } else if (currentFilter === 'completed') {
+                filteredTasks = filteredTasks.filter(task => task.completed);
+            } else if (currentFilter === 'overdue') {
+                filteredTasks = filteredTasks.filter(task => task.overdue && !task.completed);
+            }
+            
+            // 应用排序
+            filteredTasks.sort((a, b) => {
+                if (currentSort === 'dueDate') {
+                    // 按截止日期排序（无截止日期的任务排在最后）
+                    if (!a.dueDate && !b.dueDate) return 0;
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return new Date(a.dueDate) - new Date(b.dueDate);
+                } else if (currentSort === 'priority') {
+                    // 按优先级排序
+                    const priorityOrder = { high: 0, medium: 1, low: 2 };
+                    return priorityOrder[a.priority] - priorityOrder[b.priority];
+                } else {
+                    // 按创建时间排序（新的在前）
+                    return new Date(b.createdAt) - new Date(a.createdAt);
+                }
+            });
+            
+            // 如果没有任务，显示空任务提示
+            if (filteredTasks.length === 0) {
+                emptyTasks.classList.remove('hidden');
+                taskList.classList.add('hidden');
+                return;
+            }
+            
+            // 显示任务列表，隐藏空任务提示
+            emptyTasks.classList.add('hidden');
+            taskList.classList.remove('hidden');
+            
+            // 添加任务项
+            filteredTasks.forEach(task => {
+                const taskItem = document.createElement('div');
+                taskItem.className = `task-item flex items-start p-4 rounded-lg border ${task.completed ? 'task-completed' : ''} ${task.overdue ? 'border-danger' : ''}`;
+                taskItem.dataset.id = task.id;
+                
+                // 设置优先级边框颜色
+                if (!task.completed && !task.overdue) {
+                    if (task.priority === 'high') {
+                        taskItem.classList.add('border-danger');
+                    } else if (task.priority === 'medium') {
+                        taskItem.classList.add('border-warning');
+                    } else {
+                        taskItem.classList.add('border-success');
+                    }
+                }
+                
+                // 设置分类背景色
+                let categoryBg = '';
+                let categoryText = '';
+                switch (task.category) {
+                    case 'work':
+                        categoryBg = 'bg-primary/10';
+                        categoryText = 'text-primary';
+                        break;
+                    case 'study':
+                        categoryBg = 'bg-secondary/10';
+                        categoryText = 'text-secondary';
+                        break;
+                    case 'life':
+                        categoryBg = 'bg-success/10';
+                        categoryText = 'text-success';
+                        break;
+                    default:
+                        categoryBg = 'bg-warning/10';
+                        categoryText = 'text-warning';
+                }
+                
+                // 任务内容
+                taskItem.innerHTML = `
+                    <div class="flex items-center flex-grow">
+                        <input type="checkbox" class="task-checkbox h-5 w-5 text-primary focus:ring-primary/50 border-gray-300 rounded" ${task.completed ? 'checked' : ''} data-id="${task.id}">
+                        <div class="ml-3 flex-grow">
+                            <div class="flex items-center">
+                                <h3 class="task-text font-medium ${task.overdue ? 'text-danger' : ''}">${task.title}</h3>
+                                ${task.reminder && task.reminder !== 'none' ? '<span class="ml-2 reminder-badge"><i class="fa-solid fa-bell text-warning text-sm"></i></span>' : ''}
+                            </div>
+                            ${task.description ? `<p class="text-sm text-gray-600 mt-1">${task.description}</p>` : ''}
+                            <div class="flex items-center mt-2 text-xs text-gray-500 space-x-4">
+                                <span class="${categoryBg} ${categoryText} px-2 py-0.5 rounded-full">${getCategoryText(task.category)}</span>
+                                ${task.dueDate ? `<span><i class="fa-solid fa-calendar-alt mr-1"></i> ${formatDateTime(task.dueDate)}</span>` : ''}
+                                <span><i class="fa-solid fa-flag mr-1"></i> ${getPriorityText(task.priority)}</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button class="edit-task p-1.5 text-gray-400 hover:text-primary transition-colors duration-200" data-id="${task.id}">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                            <button class="delete-task p-1.5 text-gray-400 hover:text-danger transition-colors duration-200" data-id="${task.id}">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                taskList.appendChild(taskItem);
+            });
+            
+            // 添加事件监听器
+            document.querySelectorAll('.task-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', toggleTask);
+            });
+            
+            document.querySelectorAll('.edit-task').forEach(button => {
+                button.addEventListener('click', editTask);
+            });
+            
+            document.querySelectorAll('.delete-task').forEach(button => {
+                button.addEventListener('click', moveToTrash);
+            });
+        }
+        
+        // 切换任务完成状态
+        function toggleTask(e) {
+            const id = parseInt(e.target.dataset.id);
+            const task = tasks.find(task => task.id === id);
+            if (task) {
+                task.completed = e.target.checked;
+                task.completedAt = task.completed ? new Date().toISOString() : null;
+                
+                // 如果任务已完成，重置过期状态
+                if (task.completed) {
+                    task.overdue = false;
+                }
+                
+                saveData();
+                renderTasks();
+                updateStatistics();
+                updateTaskTrendChart();
+                
+                showToast(task.completed ? '任务已完成' : '任务已恢复', 'success');
+            }
+        }
+        
+        // 编辑任务
+        function editTask(e) {
+            const id = parseInt(e.target.closest('.edit-task').dataset.id);
+            const task = tasks.find(task => task.id === id);
+            if (task) {
+                // 填充表单
+                taskTitle.value = task.title;
+                taskCategory.value = task.category;
+                taskPriority.value = task.priority;
+                taskDueDate.value = task.dueDate ? task.dueDate.slice(0, 16) : '';
+                taskReminder.value = task.reminder || 'none';
+                taskDescription.value = task.description || '';
+                
+                // 滚动到表单
+                document.getElementById('tasks').scrollIntoView({ behavior: 'smooth' });
+                
+                // 聚焦到标题输入框
+                taskTitle.focus();
+                
+                // 删除原任务
+                tasks = tasks.filter(t => t.id !== id);
+                saveData();
+                renderTasks();
+                updateStatistics();
+                
+                showToast('请编辑任务信息', 'info');
+            }
+        }
+        
+        // 移动任务到回收站
+        function moveToTrash(e) {
+            const id = parseInt(e.target.closest('.delete-task').dataset.id);
+            const task = tasks.find(task => task.id === id);
+            if (task) {
+                // 添加到回收站
+                const trashItem = {
+                    ...task,
+                    deletedAt: new Date().toISOString()
+                };
+                
+                trash.push(trashItem);
+                
+                // 从任务列表中移除
+                tasks = tasks.filter(t => t.id !== id);
+                
+                saveData();
+                renderTasks();
+                renderTrash();
+                updateStatistics();
+                
+                showToast('任务已移至回收站', 'info');
+            }
+        }
+        
+        // 渲染回收站
+        function renderTrash() {
+            // 清空回收站列表
+            trashList.innerHTML = '';
+            
+            // 按删除时间排序（最新删除的在前）
+            const sortedTrash = [...trash].sort((a, b) => 
+                new Date(b.deletedAt) - new Date(a.deletedAt)
+            );
+            
+            // 如果回收站为空，显示空提示
+            if (sortedTrash.length === 0) {
+                emptyTrashMessage.classList.remove('hidden');
+                trashList.classList.add('hidden');
+                return;
+            }
+            
+            // 显示回收站列表，隐藏空提示
+            emptyTrashMessage.classList.add('hidden');
+            trashList.classList.remove('hidden');
+            
+            // 添加回收站项目
+            sortedTrash.forEach(item => {
+                const trashItem = document.createElement('div');
+                trashItem.className = 'trash-item flex items-start p-4 rounded-lg border bg-gray-50 fade-in';
+                trashItem.dataset.id = item.id;
+                
+                // 计算删除时间
+                const deletedDate = new Date(item.deletedAt);
+                const now = new Date();
+                const diffTime = now - deletedDate;
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                const diffHours = Math.floor((diffTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                
+                let deleteTimeText = '';
+                if (diffDays > 0) {
+                    deleteTimeText = `${diffDays}天前删除`;
+                } else if (diffHours > 0) {
+                    deleteTimeText = `${diffHours}小时前删除`;
+                } else {
+                    const diffMinutes = Math.floor((diffTime % (1000 * 60 * 60)) / (1000 * 60));
+                    deleteTimeText = `${diffMinutes}分钟前删除`;
+                }
+                
+                // 设置分类背景色
+                let categoryBg = '';
+                let categoryText = '';
+                switch (item.category) {
+                    case 'work':
+                        categoryBg = 'bg-primary/10';
+                        categoryText = 'text-primary';
+                        break;
+                    case 'study':
+                        categoryBg = 'bg-secondary/10';
+                        categoryText = 'text-secondary';
+                        break;
+                    case 'life':
+                        categoryBg = 'bg-success/10';
+                        categoryText = 'text-success';
+                        break;
+                    default:
+                        categoryBg = 'bg-warning/10';
+                        categoryText = 'text-warning';
+                }
+                
+                // 回收站项目内容
+                trashItem.innerHTML = `
+                    <div class="flex-grow">
+                        <div class="flex items-center">
+                            <h3 class="font-medium text-gray-800">${item.title}</h3>
+                            ${item.completed ? '<span class="ml-2 px-2 py-0.5 bg-success/10 text-success text-xs rounded-full">已完成</span>' : ''}
+                            ${item.overdue ? '<span class="ml-2 px-2 py-0.5 bg-danger/10 text-danger text-xs rounded-full">已过期</span>' : ''}
+                        </div>
+                        ${item.description ? `<p class="text-sm text-gray-600 mt-1">${item.description}</p>` : ''}
+                        <div class="flex items-center mt-2 text-xs text-gray-500 space-x-4">
+                            <span class="${categoryBg} ${categoryText} px-2 py-0.5 rounded-full">${getCategoryText(item.category)}</span>
+                            ${item.dueDate ? `<span><i class="fa-solid fa-calendar-alt mr-1"></i> ${formatDateTime(item.dueDate)}</span>` : ''}
+                            <span><i class="fa-solid fa-clock mr-1"></i> ${deleteTimeText}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button class="restore-task p-1.5 text-gray-400 hover:text-primary transition-colors duration-200" data-id="${item.id}">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </button>
+                        <button class="permanent-delete p-1.5 text-gray-400 hover:text-danger transition-colors duration-200" data-id="${item.id}">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+                
+                trashList.appendChild(trashItem);
+            });
+            
+            // 添加事件监听器
+            document.querySelectorAll('.restore-task').forEach(button => {
+                button.addEventListener('click', restoreFromTrash);
+            });
+            
+            document.querySelectorAll('.permanent-delete').forEach(button => {
+                button.addEventListener('click', permanentDelete);
+            });
+        }
+        
+        // 从回收站恢复任务
+        function restoreFromTrash(e) {
+            const id = parseInt(e.target.closest('.restore-task').dataset.id);
+            const trashItem = trash.find(item => item.id === id);
+            
+            if (trashItem) {
+                // 从回收站移除
+                trash = trash.filter(item => item.id !== id);
+                
+                // 恢复到任务列表（重置提醒状态）
+                const restoredTask = {
+                    ...trashItem,
+                    reminded: false,
+                    deletedAt: undefined
+                };
+                
+                // 检查是否过期
+                if (!restoredTask.completed && restoredTask.dueDate) {
+                    const dueDate = new Date(restoredTask.dueDate).getTime();
+                    const now = Date.now();
+                    restoredTask.overdue = dueDate < now;
+                }
+                
+                tasks.push(restoredTask);
+                
+                saveData();
+                renderTasks();
+                renderTrash();
+                updateStatistics();
+                updateTaskTrendChart();
+                
+                showToast('任务已恢复', 'success');
+            }
+        }
+        
+        // 永久删除任务
+        function permanentDelete(e) {
+            const id = parseInt(e.target.closest('.permanent-delete').dataset.id);
+            const trashItem = trash.find(item => item.id === id);
+            
+            if (trashItem) {
+                showConfirmDialog(
+                    '永久删除',
+                    `确定要永久删除任务"${trashItem.title}"吗？此操作无法撤销。`,
+                    () => {
+                        // 从回收站移除
+                        trash = trash.filter(item => item.id !== id);
+                        
+                        saveData();
+                        renderTrash();
+                        updateStatistics();
+                        
+                        showToast('任务已永久删除', 'info');
+                    }
+                );
+            }
+        }
+        
+        // 清空回收站
+        function emptyTrash() {
+            if (trash.length === 0) {
+                showToast('回收站已为空', 'info');
+                return;
+            }
+            
+            showConfirmDialog(
+                '清空回收站',
+                `确定要清空回收站吗？这将永久删除所有${trash.length}个已删除的任务，此操作无法撤销。`,
+                () => {
+                    trash = [];
+                    
+                    saveData();
+                    renderTrash();
+                    updateStatistics();
+                    
+                    showToast('回收站已清空', 'info');
+                }
+            );
+        }
+        
+        // 恢复所有任务
+        function restoreAllTrash() {
+            if (trash.length === 0) {
+                showToast('回收站已为空', 'info');
+                return;
+            }
+            
+            showConfirmDialog(
+                '恢复所有任务',
+                `确定要恢复回收站中的所有${trash.length}个任务吗？`,
+                () => {
+                    // 恢复所有任务
+                    trash.forEach(item => {
+                        const restoredTask = {
+                            ...item,
+                            reminded: false,
+                            deletedAt: undefined
+                        };
+                        
+                        // 检查是否过期
+                        if (!restoredTask.completed && restoredTask.dueDate) {
+                            const dueDate = new Date(restoredTask.dueDate).getTime();
+                            const now = Date.now();
+                            restoredTask.overdue = dueDate < now;
+                        }
+                        
+                        tasks.push(restoredTask);
+                    });
+                    
+                    // 清空回收站
+                    trash = [];
+                    
+                    saveData();
+                    renderTasks();
+                    renderTrash();
+                    updateStatistics();
+                    updateTaskTrendChart();
+                    
+                    showToast(`已恢复${tasks.length}个任务`, 'success');
+                }
+            );
+        }
+        
+        // 显示确认对话框
+        function showConfirmDialog(title, message, callback) {
+            confirmTitle.textContent = title;
+            confirmMessage.textContent = message;
+            confirmCallback = callback;
+            
+            confirmModal.classList.remove('hidden');
+        }
+        
+        // 获取分类文本
+        function getCategoryText(category) {
+            switch (category) {
+                case 'work': return '工作';
+                case 'study': return '学习';
+                case 'life': return '生活';
+                case 'other': return '其他';
+                default: return '未分类';
+            }
+        }
+        
+        // 获取优先级文本
+        function getPriorityText(priority) {
+            switch (priority) {
+                case 'high': return '高';
+                case 'medium': return '中';
+                case 'low': return '低';
+                default: return '未知';
+            }
+        }
+        
+        // 格式化日期时间
+        function formatDateTime(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffTime = date - now;
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            
+            // 格式化日期
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            
+            // 特殊显示
+            if (diffDays === 0) {
+                if (diffTime < 0) {
+                    return `今天 ${hours}:${minutes} (已过期)`;
+                } else {
+                    return `今天 ${hours}:${minutes}`;
+                }
+            } else if (diffDays === 1) {
+                return `明天 ${hours}:${minutes}`;
+            } else if (diffDays === -1) {
+                return `昨天 ${hours}:${minutes} (已过期)`;
+            } else if (diffDays > 0 && diffDays < 7) {
+                return `${diffDays}天后 ${hours}:${minutes}`;
+            } else if (diffDays < 0 && diffDays > -7) {
+                return `${Math.abs(diffDays)}天前 ${hours}:${minutes} (已过期)`;
+            } else {
+                return `${year}-${month}-${day} ${hours}:${minutes}`;
+            }
+        }
+        
+        // 更新统计信息
+        function updateStatistics() {
+            const total = tasks.length;
+            const completed = tasks.filter(task => task.completed).length;
+            const pending = tasks.filter(task => !task.completed).length;
+            const overdue = tasks.filter(task => task.overdue && !task.completed).length;
+            const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+            
+            // 更新总数
+            totalTasksElement.textContent = total;
+            completedTasksElement.textContent = completed;
+            pendingTasksElement.textContent = pending;
+            overdueTasksElement.textContent = overdue;
+            
+            // 更新完成率
+            completionRateElement.textContent = `${completionRate}%`;
+            completionBarElement.style.width = `${completionRate}%`;
+            
+            // 更新分类统计
+            workTasksElement.textContent = tasks.filter(task => task.category === 'work').length;
+            studyTasksElement.textContent = tasks.filter(task => task.category === 'study').length;
+            lifeTasksElement.textContent = tasks.filter(task => task.category === 'life').length;
+            otherTasksElement.textContent = tasks.filter(task => task.category === 'other').length;
+            
+            // 更新回收站统计
+            trashCountElement.textContent = trash.length;
+            trashTasksElement.textContent = trash.length;
+            
+            // 更新通知徽章
+            if (overdue > 0) {
+                notificationBadge.classList.remove('hidden');
+            } else {
+                notificationBadge.classList.add('hidden');
+            }
+        }
+        
+        // 初始化任务趋势图表
+        function initTaskTrendChart() {
+            const ctx = document.getElementById('task-trend-chart').getContext('2d');
+            
+            // 获取最近7天的日期
+            const dates = [];
+            const completedData = [];
+            const createdData = [];
+            
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                date.setHours(0, 0, 0, 0);
+                
+                const dateStr = date.toISOString().split('T')[0];
+                dates.push(dateStr);
+                
+                // 统计当天完成的任务数
+                const completedCount = tasks.filter(task => 
+                    task.completed && 
+                    task.completedAt && 
+                    task.completedAt.startsWith(dateStr)
+                ).length;
+                
+                // 统计当天创建的任务数
+                const createdCount = tasks.filter(task => 
+                    task.createdAt.startsWith(dateStr)
+                ).length;
+                
+                completedData.push(completedCount);
+                createdData.push(createdCount);
+            }
+            
+            // 格式化日期标签
+            const formattedDates = dates.map(dateStr => {
+                const date = new Date(dateStr);
+                return `${date.getMonth() + 1}/${date.getDate()}`;
+            });
+            
+            taskTrendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: formattedDates,
+                    datasets: [
+                        {
+                            label: '完成任务',
+                            data: completedData,
+                            borderColor: '#10B981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '创建任务',
+                            data: createdData,
+                            borderColor: '#3B82F6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 更新任务趋势图表
+        function updateTaskTrendChart() {
+            if (!taskTrendChart) return;
+            
+            // 获取最近7天的日期
+            const dates = [];
+            const completedData = [];
+            const createdData = [];
+            
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                date.setHours(0, 0, 0, 0);
+                
+                const dateStr = date.toISOString().split('T')[0];
+                dates.push(dateStr);
+                
+                // 统计当天完成的任务数
+                const completedCount = tasks.filter(task => 
+                    task.completed && 
+                    task.completedAt && 
+                    task.completedAt.startsWith(dateStr)
+                ).length;
+                
+                // 统计当天创建的任务数
+                const createdCount = tasks.filter(task => 
+                    task.createdAt.startsWith(dateStr)
+                ).length;
+                
+                completedData.push(completedCount);
+                createdData.push(createdCount);
+            }
+            
+            // 格式化日期标签
+            const formattedDates = dates.map(dateStr => {
+                const date = new Date(dateStr);
+                return `${date.getMonth() + 1}/${date.getDate()}`;
+            });
+            
+            taskTrendChart.data.labels = formattedDates;
+            taskTrendChart.data.datasets[0].data = completedData;
+            taskTrendChart.data.datasets[1].data = createdData;
+            taskTrendChart.update();
+        }
+        
+        // 显示Toast提示
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const toastIcon = document.getElementById('toast-icon');
+            const toastMessage = document.getElementById('toast-message');
+            
+            // 设置消息
+            toastMessage.textContent = message;
+            
+            // 设置图标和样式
+            if (type === 'success') {
+                toast.className = 'fixed bottom-4 right-4 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-y-0 opacity-100 z-50 flex items-center max-w-xs glass-effect bg-green-50 text-green-800 border-l-4 border-green-400';
+                toastIcon.className = 'fa-solid fa-check-circle text-green-500 mr-2';
+            } else if (type === 'error' || type === 'danger') {
+                toast.className = 'fixed bottom-4 right-4 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-y-0 opacity-100 z-50 flex items-center max-w-xs glass-effect bg-red-50 text-red-800 border-l-4 border-red-400';
+                toastIcon.className = 'fa-solid fa-exclamation-circle text-red-500 mr-2';
+            } else if (type === 'warning') {
+                toast.className = 'fixed bottom-4 right-4 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-y-0 opacity-100 z-50 flex items-center max-w-xs glass-effect bg-yellow-50 text-yellow-800 border-l-4 border-yellow-400';
+                toastIcon.className = 'fa-solid fa-exclamation-triangle text-yellow-500 mr-2';
+            } else {
+                toast.className = 'fixed bottom-4 right-4 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-y-0 opacity-100 z-50 flex items-center max-w-xs glass-effect bg-blue-50 text-blue-800 border-l-4 border-blue-400';
+                toastIcon.className = 'fa-solid fa-info-circle text-blue-500 mr-2';
+            }
+            
+            // 显示Toast
+            toast.style.transform = 'translateY(0)';
+            toast.style.opacity = '1';
+            
+            // 3秒后隐藏Toast
+            setTimeout(() => {
+                toast.style.transform = 'translateY(calc(100% + 1rem))';
+                toast.style.opacity = '0';
+            }, 3000);
+        }
+        
+        // 事件监听器
+        addTask.addEventListener('click', addNewTask);
+        taskTitle.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                addNewTask();
+            }
+        });
+        
+        // 任务筛选
+        document.querySelectorAll('.task-filter').forEach(button => {
+            button.addEventListener('click', () => {
+                // 移除所有选中状态
+                document.querySelectorAll('.task-filter').forEach(btn => {
+                    btn.classList.remove('tab-active');
+                });
+                
+                // 添加选中状态
+                button.classList.add('tab-active');
+                
+                // 更新筛选条件
+                currentFilter = button.dataset.filter;
+                
+                // 重新渲染任务列表
+                renderTasks();
+            });
+        });
+        
+        // 任务搜索
+        taskSearch.addEventListener('input', (e) => {
+            searchQuery = e.target.value.trim();
+            renderTasks();
+        });
+        
+        // 任务排序
+        taskSort.addEventListener('change', (e) => {
+            currentSort = e.target.value;
+            renderTasks();
+        });
+        
+        // 通知设置
+        notificationSettings.addEventListener('click', () => {
+            if (notificationPermission) {
+                showToast('通知已启用', 'success');
+            } else if (Notification.permission === 'denied') {
+                showToast('请在浏览器设置中启用通知权限', 'warning');
+            } else {
+                notificationModal.classList.remove('hidden');
+            }
+        });
+        
+        // 允许通知
+        allowNotification.addEventListener('click', requestNotificationPermission);
+        
+        // 拒绝通知
+        denyNotification.addEventListener('click', () => {
+            notificationModal.classList.add('hidden');
+            showToast('您已拒绝通知权限，将使用页面内提醒', 'info');
+        });
+        
+        // 清空回收站
+        emptyTrashBtn.addEventListener('click', emptyTrash);
+        
+        // 恢复所有任务
+        restoreAllBtn.addEventListener('click', restoreAllTrash);
+        
+        // 确认对话框
+        confirmOk.addEventListener('click', () => {
+            if (confirmCallback) {
+                confirmCallback();
+                confirmCallback = null;
+            }
+            confirmModal.classList.add('hidden');
+        });
+        
+        confirmCancel.addEventListener('click', () => {
+            confirmCallback = null;
+            confirmModal.classList.add('hidden');
+        });
+        
+        // 文件上传相关
+        browseBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+        
+        // 拖放功能
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            dropArea.classList.add('border-primary', 'bg-primary/5');
+        }
+        
+        function unhighlight() {
+            dropArea.classList.remove('border-primary', 'bg-primary/5');
+        }
+        
+        dropArea.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const file = dt.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+        
+        // 处理文件上传
+        function handleFile(file) {
+            // 验证文件类型
+            const fileTypes = [
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-excel',
+                'text/csv'
+            ];
+            
+            if (!fileTypes.includes(file.type) && 
+                !file.name.endsWith('.xlsx') && 
+                !file.name.endsWith('.xls') && 
+                !file.name.endsWith('.csv')) {
+                showToast('请上传Excel或CSV文件', 'error');
+                return;
+            }
+            
+            // 读取文件
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                try {
+                    // 处理Excel文件
+                    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                        const workbook = XLSX.read(e.target.result, { type: 'binary' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    } 
+                    // 处理CSV文件
+                    else if (file.name.endsWith('.csv')) {
+                        const text = e.target.result;
+                        const lines = text.split('\n');
+                        data = lines.map(line => line.split(','));
+                    }
+                    
+                    // 检查数据是否有效
+                    if (!data || data.length <= 1) {
+                        showToast('文件中没有足够的数据', 'error');
+                        return;
+                    }
+                    
+                    // 填充列选择器
+                    populateColumnSelectors();
+                    
+                    showToast('文件上传成功', 'success');
+                } catch (error) {
+                    console.error('Error processing file:', error);
+                    showToast('处理文件时出错', 'error');
+                }
+            };
+            
+            reader.onerror = function() {
+                showToast('读取文件时出错', 'error');
+            };
+            
+            if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                reader.readAsBinaryString(file);
+            } else {
+                reader.readAsText(file);
+            }
+        }
+        
+        // 填充列选择器
+        function populateColumnSelectors() {
+            // 清空选择器
+            xAxisSelect.innerHTML = '<option value="">请选择...</option>';
+            yAxisSelect.innerHTML = '<option value="">请选择...</option>';
+            
+            // 添加列选项
+            data[0].forEach((column, index) => {
+                const xOption = document.createElement('option');
+                xOption.value = index;
+                xOption.textContent = column;
+                xAxisSelect.appendChild(xOption);
+                
+                const yOption = document.createElement('option');
+                yOption.value = index;
+                yOption.textContent = column;
+                yAxisSelect.appendChild(yOption);
+            });
+        }
+        
+        // 图表类型选择
+        document.querySelectorAll('.chart-type-option').forEach(option => {
+            option.addEventListener('click', () => {
+                // 移除所有选中状态
+                document.querySelectorAll('.chart-type-option').forEach(opt => {
+                    opt.classList.remove('bg-primary/10', 'text-primary');
+                });
+                
+                // 添加选中状态
+                option.classList.add('bg-primary/10', 'text-primary');
+            });
+        });
+        
+        // 生成图表
+        generateChartBtn.addEventListener('click', () => {
+            if (!data) {
+                showToast('请先上传数据文件', 'error');
+                return;
+            }
+            
+            const xAxisIndex = parseInt(xAxisSelect.value);
+            const yAxisIndex = parseInt(yAxisSelect.value);
+            
+            if (isNaN(xAxisIndex) || isNaN(yAxisIndex)) {
+                showToast('请选择X轴和Y轴数据列', 'error');
+                return;
+            }
+            
+            if (xAxisIndex === yAxisIndex) {
+                showToast('X轴和Y轴不能选择同一列', 'error');
+                return;
+            }
+            
+            // 准备图表数据
+            const labels = [];
+            const values = [];
+            
+            // 从第2行开始，因为第1行是表头
+            for (let i = 1; i < data.length; i++) {
+                // 跳过空行
+                if (!data[i][xAxisIndex] || !data[i][yAxisIndex]) continue;
+                
+                labels.push(data[i][xAxisIndex]);
+                
+                // 尝试转换为数字
+                const value = parseFloat(data[i][yAxisIndex]);
+                values.push(isNaN(value) ? data[i][yAxisIndex] : value);
+            }
+            
+            if (labels.length === 0 || values.length === 0) {
+                showToast('所选列中没有有效数据', 'error');
+                return;
+            }
+            
+            // 获取选中的图表类型
+            let chartType = 'bar';
+            const selectedChartType = document.querySelector('.chart-type-option.bg-primary\\/10');
+            if (selectedChartType) {
+                chartType = selectedChartType.dataset.type;
+            }
+            
+            // 准备图表配置
+            const config = {
+                type: chartType,
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: chartTitleInput.value || data[0][yAxisIndex],
+                        data: values,
+                        backgroundColor: getChartColors(labels.length),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: showLegend.checked,
+                            position: 'top',
+                        },
+                        title: {
+                            display: true,
+                            text: chartTitleInput.value || `${data[0][yAxisIndex]} 图表`,
+                            font: {
+                                size: 16,
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    scales: chartType === 'pie' || chartType === 'doughnut' ? {} : {
+                        x: {
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            };
+            
+            // 特殊配置
+            if (chartType === 'pie' || chartType === 'doughnut') {
+                config.options.cutout = chartType === 'doughnut' ? '65%' : '0%';
+            }
+            
+            // 如果已有图表，销毁它
+            if (chart) {
+                chart.destroy();
+            }
+            
+            // 创建新图表
+            chart = new Chart(dataChart, config);
+            
+            // 显示图表容器，隐藏无图表消息
+            chartContainer.classList.remove('hidden');
+            noChartMessage.classList.add('hidden');
+            
+            showToast('图表生成成功', 'success');
+        });
+        
+        // 获取图表颜色
+        function getChartColors(count) {
+            const colors = [
+                'rgba(59, 130, 246, 0.8)',
+                'rgba(99, 102, 241, 0.8)',
+                'rgba(16, 185, 129, 0.8)',
+                'rgba(245, 158, 11, 0.8)',
+                'rgba(239, 68, 68, 0.8)',
+                'rgba(139, 92, 246, 0.8)',
+                'rgba(236, 72, 153, 0.8)',
+                'rgba(20, 184, 166, 0.8)',
+                'rgba(251, 146, 60, 0.8)',
+                'rgba(168, 85, 247, 0.8)'
+            ];
+            
+            const result = [];
+            for (let i = 0; i < count; i++) {
+                result.push(colors[i % colors.length]);
+            }
+            
+            return result;
+        }
+        
+        // 默认选中第一个图表类型
+        document.querySelector('.chart-type-option').classList.add('bg-primary/10', 'text-primary');
+        
+        // 平滑滚动
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                
+                const targetId = this.getAttribute('href');
+                const targetElement = document.querySelector(targetId);
+                
+                if (targetElement) {
+                    targetElement.scrollIntoView({
+                        top: targetElement.offsetTop - 80,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+    </script>
+</body></html>
